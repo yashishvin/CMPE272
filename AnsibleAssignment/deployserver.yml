@@ -1,0 +1,72 @@
+# ---
+- name: Create EC2 instances update apache ports and load data
+  hosts: localhost
+  gather_facts: no
+  vars:
+    awsregion: "us-east-2"
+    instance_type: "t2.nano"
+    ami_id: "ami-09efc42336106d2f2" #ami id
+    key_name: "my_ec2_key" #the name of my key
+    security_group_name: "my-ansible-security-group" #security group which I will create
+    project_tag: "Ansible"
+    webservers: #dictionary for VM details
+      - name: "VM1"
+        port: 8080
+        message: "Hello World from SJSU-1"
+      - name: "VM2"
+        port: 8080
+        message: "Hello World from SJSU-2"
+
+  tasks:
+    - name: Create EC2 key pair
+      amazon.aws.ec2_key:
+        name: "{{ key_name }}"
+        region: "{{ awsregion }}"
+      register: ec2_key
+
+    - name: Save private key locally 
+      copy:
+        content: "{{ ec2_key.key.private_key }}"
+        dest: "~/.ssh/{{ key_name }}.pem" #use this key to SSH into the EC2 instance
+        mode: '0600'
+
+    - name: Creating a security group
+      amazon.aws.ec2_group:
+        name: "{{ security_group_name }}"
+        description: "Defining ingress and egress rules allow inboud traffic only to port 8080"
+        region: "{{ awsregion }}"
+        rules:
+          - proto: all
+            cidr_ip: 0.0.0.0/0
+        rules_egress:
+          - proto: all
+            cidr_ip: 0.0.0.0/0
+      register: sg
+
+    - name: Creating two EC2 instances VM1 and VM2
+      amazon.aws.ec2_instance:
+        name: "{{ item.name }}"
+        key_name: "{{ key_name }}"
+        instance_type: "{{ instance_type }}"
+        image_id: "{{ ami_id }}"
+        region: "{{ awsregion }}"
+        state: present
+        wait: yes
+        security_group: "{{ sg.group_id }}"
+        user_data: |
+          #!/bin/bash
+          sudo yum update -y
+          sudo yum install -y httpd
+          sudo systemctl start httpd
+          sudo systemctl enable httpd
+          sudo vim -c '%s/Listen 80/Listen 8080/g | wq' /etc/httpd/conf/httpd.conf  
+          echo "{{ item.message }}" > /var/www/html/index.html
+          sudo systemctl restart httpd
+        tags:
+          Name: "{{ item.name }}"
+          Project: "{{ project_tag }}" #will use this as a filter when undeploying
+      loop: "{{ webservers }}"
+      register: ec2_instances
+    - name: Debug the ec2_instances
+      debug:
+        var: ec2_instances

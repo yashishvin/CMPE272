@@ -1,0 +1,16 @@
+- name: Undeploy EC2 instances
+  hosts: localhost
+  gather_facts: no
+  vars:
+    awsregion: "us-east-2"
+    project_tag: "Ansible"
+  tasks:
+    - name: Terminate EC2 instances with matching Project tag
+      amazon.aws.ec2_instance:
+        state: absent
+        region: "{{ awsregion }}"
+        filters:
+          "tag:Project": "{{ project_tag }}"
+        wait: yes
+      register: terminated_instances
+      when: project_tag is defined
